@@ -43,12 +43,11 @@ Use os links de autenticação exibidos no Emulator UI. A configuração de demo
 
 O Firebase/Firestore é um serviço gerenciado: o site e o banco continuam funcionando sem deixar seu computador ligado. O plano Spark oferece cotas gratuitas diárias para o Firestore; ao atingir os limites, as operações podem parar até a próxima cota, e recursos pagos não devem ser ativados sem revisar preços.
 
-1. No [Firebase Console](https://console.firebase.google.com/), abra o projeto `grimorio-dos-mundos-dh`.
-2. Crie o banco Cloud Firestore. A região é permanente; escolha-a considerando latência, localização e elegibilidade de cota gratuita antes de confirmar.
-3. Em Authentication, habilite Google e Email Link. Adicione `dudutronicc-stack.github.io` aos domínios autorizados.
-4. Crie um app Web no projeto e copie a configuração pública do Firebase para `.env.local`. Defina `VITE_USE_FIREBASE_EMULATORS=false`.
-5. Publique as regras revisadas com `npm run firebase:deploy-rules`.
-6. Configure no repositório GitHub os Actions Secrets `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID` e `VITE_FIREBASE_APP_ID`. Configure também `VITE_USE_FIREBASE_EMULATORS=false` para o workflow de produção.
+1. O projeto `grimorio-dos-mundos-dh` já tem um banco Cloud Firestore Standard em `southamerica-east1` (São Paulo), com proteção contra exclusão habilitada. A região é permanente.
+2. Authentication está configurado com login Google e link por e-mail. O domínio `dudutronicc-stack.github.io` está autorizado.
+3. O app Web Firebase já está registrado. Para desenvolvimento remoto local, coloque a configuração pública desse app em `.env.local` e defina `VITE_USE_FIREBASE_EMULATORS=false`. Para desenvolvimento isolado, mantenha os valores de demonstração e emuladores.
+4. As regras do Firestore já foram compiladas e publicadas. Para alterações futuras, use `npm run firebase:deploy-rules`.
+5. Os Actions Secrets `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID` e `VITE_FIREBASE_APP_ID` já estão configurados no repositório. O workflow define `VITE_USE_FIREBASE_EMULATORS=false` para produção.
 
 As regras do Firestore restringem a escrita do catálogo ao criador autorizado, isolam rascunhos por conta, protegem sugestões e avaliações e limitam leitores sem login ao volume 1 e às páginas 1–4. As páginas ficam em documentos separados para a regra de prévia poder ser aplicada pelo servidor.
 

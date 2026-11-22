@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { firebaseAuth, firebaseConfigured, googleProvider } from './firebase'
+import { firebaseAuth, googleProvider } from './firebase'
 import { onAuthStateChanged, signInWithPopup, signOut, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth'
 import './App.css'
 
@@ -29,6 +29,7 @@ function App() {
   const [area, setArea] = useState('reader')
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
   const [stories, setStories] = useState(() => readData('stories', seedStories))
+  const [drafts, setDrafts] = useState(() => readData('author-drafts', []))
   const [characters, setCharacters] = useState(() => readData('characters', [
     { id: 1, name: 'Henry', role: 'Protagonista', note: 'Cabelos escuros bagunçados, expressão cansada.' },
     { id: 2, name: 'Jacx', role: 'Co-protagonista', note: 'Cachos escuros, vestido cinza simples.' },
@@ -43,6 +44,11 @@ function App() {
   const [selectedVolume, setSelectedVolume] = useState(null)
   const [studioText, setStudioText] = useState('')
   const [comicPrompt, setComicPrompt] = useState('')
+  const [draftId, setDraftId] = useState(null)
+  const [writingStoryId, setWritingStoryId] = useState('')
+  const [writingTitle, setWritingTitle] = useState('')
+  const [writingText, setWritingText] = useState('')
+  const [selectedPage, setSelectedPage] = useState(0)
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
@@ -53,6 +59,10 @@ function App() {
   useEffect(() => {
     localStorage.setItem('stories', JSON.stringify(stories))
   }, [stories])
+
+  useEffect(() => {
+    localStorage.setItem('author-drafts', JSON.stringify(drafts))
+  }, [drafts])
 
   useEffect(() => {
     localStorage.setItem('characters', JSON.stringify(characters))
@@ -103,6 +113,7 @@ function App() {
   }, [reactions, stories, suggestions])
 
   const ownerUnlocked = authUser?.email === 'dudutronicc@gmail.com'
+  const readerPageCount = selectedVolume?.pages?.length || selectedVolume?.chapters || 1
 
   function addStory(event) {
     event.preventDefault()
@@ -116,6 +127,85 @@ function App() {
       synopsis: data.get('synopsis'),
       cover,
       volumes: [],
+    }
+
+    function saveDraft(event) {
+      event.preventDefault()
+      const title = writingTitle.trim()
+      const text = writingText.trim()
+      if (!title || !text) {
+        setNotice('Preencha o título e o texto para salvar o rascunho.')
+        return
+      }
+
+      const draft = {
+        id: draftId || Date.now(),
+        storyId: writingStoryId,
+        title,
+        text,
+        updatedAt: new Date().toISOString(),
+      }
+      setDrafts((items) => [draft, ...items.filter((item) => item.id !== draft.id)])
+      setDraftId(draft.id)
+      setNotice('Rascunho salvo. Você pode voltar a ele depois neste navegador.')
+    }
+
+    function resumeDraft(draft) {
+      setDraftId(draft.id)
+      setWritingStoryId(draft.storyId || '')
+      setWritingTitle(draft.title)
+      setWritingText(draft.text)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      setNotice(`Rascunho "${draft.title}" aberto para continuar.`)
+    }
+
+    function publishWriting(event) {
+      event.preventDefault()
+      const title = writingTitle.trim()
+      const text = writingText.trim()
+      if (!title || !text) {
+        setNotice('Adicione um título e escreva o conteúdo antes de publicar.')
+        return
+      }
+      const story = stories.find((item) => String(item.id) === String(writingStoryId))
+      if (!story) {
+        setNotice('Selecione uma história para publicar este volume.')
+        return
+      }
+
+      const pages = text.split(/\n\s*\n/).map((page) => page.trim()).filter(Boolean)
+      const volumeNumber = Math.max(0, ...story.volumes.map((volume) => Number(volume.number) || 0)) + 1
+      const volume = {
+        id: Date.now(),
+        number: volumeNumber,
+        title,
+        chapters: 1,
+        pages: pages.length ? pages : [text],
+        downloads: 0,
+        likes: 0,
+        dislikes: 0,
+        publishedAt: new Date().toISOString(),
+      }
+      setStories((items) => items.map((item) => (
+        item.id === story.id ? { ...item, volumes: [...item.volumes, volume] } : item
+      )))
+      setDrafts((items) => items.filter((item) => item.id !== draftId))
+      setDraftId(null)
+      setWritingTitle('')
+      setWritingText('')
+      setWritingStoryId('')
+      setNotice(`Volume ${volumeNumber} publicado em "${story.title}".`)
+    }
+
+    function deleteDraft(id) {
+      setDrafts((items) => items.filter((item) => item.id !== id))
+      if (draftId === id) {
+        setDraftId(null)
+        setWritingTitle('')
+        setWritingText('')
+        setWritingStoryId('')
+      }
+      setNotice('Rascunho excluído.')
     }
     setStories((items) => [story, ...items])
     event.currentTarget.reset()
@@ -164,6 +254,16 @@ function App() {
     setReactions((items) => ({ ...items, [volumeId]: items[volumeId] === reaction ? null : reaction }))
   }
 
+  function openVolume(volume) {
+    if (!authUser && volume.number > 1) {
+      setAuthModal(true)
+      setNotice('Entre para ler os volumes seguintes.')
+      return
+    }
+    setSelectedPage(0)
+    setSelectedVolume(volume)
+  }
+
   function addSuggestion(event) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
@@ -176,6 +276,11 @@ function App() {
   }
 
   function downloadVolume(volume) {
+    if (!authUser) {
+      setAuthModal(true)
+      setNotice('Entre para baixar os volumes.')
+      return
+    }
     const content = [
       'GRIMÓRIO DOS MUNDOS',
       `Volume ${volume.number}: ${volume.title}`,
@@ -196,19 +301,6 @@ function App() {
 
   function openAuth() {
     setAuthModal(true)
-  }
-
-  function openOwner() {
-    if (!firebaseAuth) {
-      setAuthModal(true)
-      setNotice('A autenticação real ainda precisa da configuração pública do Firebase.')
-      return
-    }
-    if (ownerUnlocked) {
-      setArea('owner')
-    } else {
-      setAuthModal(true)
-    }
   }
 
   async function signInWithGoogle() {
@@ -301,8 +393,8 @@ function App() {
                     className="cover"
                     role="button"
                     tabIndex={0}
-                    onClick={() => story.volumes[0] && setSelectedVolume(story.volumes[0])}
-                    onKeyDown={(event) => event.key === 'Enter' && story.volumes[0] && setSelectedVolume(story.volumes[0])}
+                    onClick={() => story.volumes[0] && openVolume(story.volumes[0])}
+                    onKeyDown={(event) => event.key === 'Enter' && story.volumes[0] && openVolume(story.volumes[0])}
                     style={story.cover ? { backgroundImage: `linear-gradient(145deg, transparent, #09070d), url(${story.cover})` } : undefined}
                   >
                     <span>{story.kind}</span>
@@ -320,6 +412,7 @@ function App() {
                             <small>{volume.chapters} capítulos</small>
                           </div>
                           <div className="actions">
+                            <button onClick={() => openVolume(volume)}>Ler</button>
                             <button className={reactions[volume.id] === 'like' ? 'selected' : ''} onClick={() => reactTo(volume.id, 'like')}>▲ {volume.likes}</button>
                             <button className={reactions[volume.id] === 'dislike' ? 'selected' : ''} onClick={() => reactTo(volume.id, 'dislike')}>▼ {volume.dislikes}</button>
                             <button onClick={() => downloadVolume(volume)}>⇩ Download</button>
@@ -374,6 +467,51 @@ function App() {
                     <textarea name="synopsis" placeholder="Sinopse" required />
                     <button type="submit">Publicar história</button>
                   </form>
+                </section>
+
+                <section className="panel-section writing-studio">
+                  <div className="writing-heading">
+                    <div>
+                      <p className="eyebrow">ESPAÇO DE ESCRITA</p>
+                      <h2>Escreva sua próxima história</h2>
+                    </div>
+                    {draftId && <span className="draft-status">Rascunho aberto</span>}
+                  </div>
+                  <form className="writing-form" onSubmit={saveDraft}>
+                    <select value={writingStoryId} onChange={(event) => setWritingStoryId(event.target.value)} aria-label="História">
+                      <option value="">Selecione uma história para publicar...</option>
+                      {stories.map((story) => <option value={story.id} key={story.id}>{story.title}</option>)}
+                    </select>
+                    <input value={writingTitle} onChange={(event) => setWritingTitle(event.target.value)} placeholder="Título do capítulo ou volume" required />
+                    <textarea
+                      value={writingText}
+                      onChange={(event) => setWritingText(event.target.value)}
+                      placeholder="Comece a escrever aqui. Separe as páginas por uma linha em branco."
+                      aria-label="Texto da história"
+                      required
+                    />
+                    <div className="writing-actions">
+                      <button type="submit" className="secondary-button">Salvar para depois</button>
+                      <button type="button" className="publish-button" onClick={publishWriting}>Publicar</button>
+                    </div>
+                  </form>
+                  <div className="drafts-list">
+                    <div className="drafts-title"><h3>Seus rascunhos</h3><span>{drafts.length} salvos</span></div>
+                    {drafts.length === 0 ? (
+                      <p className="empty">Os textos salvos aparecerão aqui para você continuar depois.</p>
+                    ) : drafts.map((draft) => (
+                      <article className="draft-item" key={draft.id}>
+                        <div>
+                          <strong>{draft.title}</strong>
+                          <small>Salvo em {new Date(draft.updatedAt).toLocaleString('pt-BR')}</small>
+                        </div>
+                        <div>
+                          <button type="button" onClick={() => resumeDraft(draft)}>Continuar escrevendo</button>
+                          <button type="button" onClick={() => deleteDraft(draft.id)}>Excluir</button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
                 </section>
 
                 <section className="panel-section studio-ai">
@@ -436,21 +574,32 @@ function App() {
 
       {selectedVolume && (
         <div className="reader-modal" role="dialog" aria-modal="true" aria-label={`Leitor de ${selectedVolume.title}`}>
-          <button className="reader-close" onClick={() => setSelectedVolume(null)} aria-label="Fechar leitor">×</button>
+          <button className="reader-close" onClick={() => setSelectedVolume(null)} aria-label="Voltar à biblioteca">×</button>
           <div className="book">
             <div className="book-page left-page">
               <span>Volume {selectedVolume.number}</span>
               <h2>{selectedVolume.title}</h2>
-              <p>{authUser ? 'Modo completo disponível para leitores cadastrados.' : 'Prévia gratuita: primeiro volume e primeiras quatro páginas.'}</p>
+              <p>{authUser ? 'Leitura completa para leitores cadastrados.' : 'Prévia gratuita: primeiro volume, até quatro páginas.'}</p>
+              <small>Página {selectedPage + 1} de {readerPageCount}</small>
             </div>
             <div className="book-page right-page">
-              <div className="comic-preview">PÁGINA 1</div>
-              {!authUser && (
+              {(!authUser && selectedPage >= 4) ? (
                 <div className="login-gate">
                   <strong>Continue a leitura</strong>
-                  <p>Faça login para desbloquear todas as páginas, volumes e downloads.</p>
+                  <p>Crie sua conta ou entre para desbloquear todas as páginas, volumes e downloads.</p>
                   <button onClick={openAuth}>Entrar ou cadastrar</button>
                 </div>
+              ) : (
+                <>
+                  <div className="comic-preview">
+                    <span>PÁGINA {selectedPage + 1}</span>
+                    <p>{selectedVolume.pages?.[selectedPage] || `Prévia de leitura de “${selectedVolume.title}”.`}</p>
+                  </div>
+                  <div className="book-navigation">
+                    <button disabled={selectedPage === 0} onClick={() => setSelectedPage((page) => page - 1)}>Anterior</button>
+                    <button disabled={selectedPage >= readerPageCount - 1} onClick={() => setSelectedPage((page) => page + 1)}>Próxima</button>
+                  </div>
+                </>
               )}
             </div>
           </div>

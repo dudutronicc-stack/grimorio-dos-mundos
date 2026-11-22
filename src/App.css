@@ -76,7 +76,7 @@ button { cursor: pointer; }
 .volume > div:first-child span { color: var(--accent-strong); font-size: 10px; text-transform: uppercase; letter-spacing: 2px; }
 .volume > div:first-child strong { font-family: Georgia, serif; margin: 4px 0; }
 .volume small { color: var(--muted); }
-.actions { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 6px; margin-top: 12px; }
+.actions { display: grid; grid-template-columns: .8fr 1fr 1fr 1.4fr; gap: 6px; margin-top: 12px; }
 .actions button, .grid-form button, .suggestion-section button, .unlock-card button { border: 1px solid var(--line); background: transparent; color: var(--ink); min-height: 38px; }
 .actions button.selected { border-color: var(--accent); color: var(--accent-strong); background: #c9a44d12; }
 .empty { color: var(--muted); }
@@ -156,6 +156,30 @@ button { cursor: pointer; }
 .studio-ai { display: grid; grid-template-columns: 180px 1fr auto; align-items: end; gap: 12px; }
 .studio-ai textarea { min-height: 110px; resize: vertical; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 12px; }
 .studio-ai button { min-height: 44px; border: 0; background: var(--accent); color: #111; padding: 0 16px; }
+.writing-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.draft-status { border: 1px solid var(--accent); color: var(--accent-strong); padding: 6px 10px; font-size: 12px; }
+.writing-form { display: grid; gap: 12px; margin-top: 18px; }
+.writing-form select, .writing-form input, .writing-form textarea {
+  width: 100%; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 13px;
+}
+.writing-form textarea { min-height: 340px; resize: vertical; line-height: 1.7; }
+.writing-actions { display: flex; justify-content: end; gap: 10px; }
+.writing-actions button { min-height: 42px; padding: 0 18px; font-weight: 700; }
+.secondary-button { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.publish-button { background: var(--accent); border: 1px solid var(--accent); color: #111; }
+.drafts-list { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 18px; }
+.drafts-title { display: flex; justify-content: space-between; align-items: center; }
+.drafts-title h3 { font-family: Georgia, serif; margin: 0; }
+.drafts-title span, .draft-item small { color: var(--muted); font-size: 12px; }
+.draft-item { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid var(--line); }
+.draft-item > div:first-child strong, .draft-item small { display: block; }
+.draft-item button, .book-navigation button { margin-left: 6px; min-height: 34px; padding: 0 10px; border: 1px solid var(--line); background: transparent; color: var(--ink); }
+.draft-item button:first-child { border-color: var(--accent); color: var(--accent-strong); }
+.comic-preview { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 18px; text-align: center; padding: 25px; overflow-y: auto; }
+.comic-preview p { width: 100%; white-space: pre-wrap; font-size: 18px; line-height: 1.6; }
+.book-navigation { position: absolute; bottom: 22px; display: flex; gap: 12px; }
+.book-navigation button { background: #171511; color: #fff; padding: 0 16px; }
+.book-navigation button:disabled { opacity: .4; cursor: not-allowed; }
 
 @media (max-width: 800px) {
   .topbar { height: auto; min-height: 72px; grid-template-columns: 1fr auto; padding: 12px 16px; }

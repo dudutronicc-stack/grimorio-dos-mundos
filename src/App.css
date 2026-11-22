@@ -156,6 +156,16 @@ button { cursor: pointer; }
 .studio-ai { display: grid; grid-template-columns: 180px 1fr auto; align-items: end; gap: 12px; }
 .studio-ai textarea { min-height: 110px; resize: vertical; border: 1px solid var(--line); background: var(--paper); color: var(--ink); padding: 12px; }
 .studio-ai button { min-height: 44px; border: 0; background: var(--accent); color: #111; padding: 0 16px; }
+.app-footer {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px 24px;
+  padding: 28px max(24px, calc((100vw - 1180px) / 2)); border-top: 1px solid var(--line); background: var(--panel);
+}
+.app-footer > div { display: flex; align-items: center; gap: 16px; }
+.footer-mark { flex: 0 0 42px; }
+.app-footer strong { font-family: Georgia, serif; font-size: 19px; }
+.app-footer p { max-width: 570px; color: var(--muted); font-size: 13px; margin: 5px 0 0; line-height: 1.5; }
+.app-footer > button { min-height: 42px; border: 0; background: var(--accent); color: #111; padding: 0 18px; font-weight: 700; }
+.app-footer > small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
 .writing-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .draft-status { border: 1px solid var(--accent); color: var(--accent-strong); padding: 6px 10px; font-size: 12px; }
 .writing-form { display: grid; gap: 12px; margin-top: 18px; }
@@ -202,4 +212,10 @@ button { cursor: pointer; }
   .left-page h2 { font-size: 34px; }
   .right-page { min-height: 360px; }
   .studio-ai { grid-template-columns: 1fr; }
+  .app-footer { grid-template-columns: 1fr; padding: 24px 18px; }
+  .app-footer > button { width: 100%; }
+  .app-footer > small { grid-column: 1; }
+  .draft-item { align-items: flex-start; flex-direction: column; }
+  .draft-item > div:last-child { display: flex; gap: 6px; }
+  .draft-item button { margin-left: 0; }
 }

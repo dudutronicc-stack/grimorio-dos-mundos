@@ -44,6 +44,8 @@ function App() {
   const [selectedVolume, setSelectedVolume] = useState(null)
   const [studioText, setStudioText] = useState('')
   const [comicPrompt, setComicPrompt] = useState('')
+  const [installPrompt, setInstallPrompt] = useState(null)
+  const [installHelp, setInstallHelp] = useState('')
   const [draftId, setDraftId] = useState(null)
   const [writingStoryId, setWritingStoryId] = useState('')
   const [writingTitle, setWritingTitle] = useState('')
@@ -79,6 +81,22 @@ function App() {
   useEffect(() => {
     const visits = Number(localStorage.getItem('visits') || 0) + 1
     localStorage.setItem('visits', String(visits))
+  }, [])
+
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {
+        setNotice('Não foi possível preparar a instalação offline neste navegador.')
+      })
+    }
+
+    function handleInstallPrompt(event) {
+      event.preventDefault()
+      setInstallPrompt(event)
+    }
+
+    window.addEventListener('beforeinstallprompt', handleInstallPrompt)
+    return () => window.removeEventListener('beforeinstallprompt', handleInstallPrompt)
   }, [])
 
   useEffect(() => {
@@ -339,6 +357,30 @@ function App() {
       setNotice('Não foi possível enviar o token por e-mail.')
     } finally {
       setAuthBusy(false)
+    }
+  }
+
+  async function installApp() {
+    if (installPrompt) {
+      try {
+        await installPrompt.prompt()
+        await installPrompt.userChoice
+        setInstallPrompt(null)
+      } catch {
+        setNotice('A instalação não pôde ser iniciada. Use o menu do navegador para adicionar o app à tela inicial.')
+      }
+      return
+    }
+
+    const userAgent = navigator.userAgent
+    const isAppleMobile = /iPhone|iPad|iPod/.test(userAgent)
+    const isMac = /Macintosh|Mac OS X/.test(userAgent)
+    if (isAppleMobile) {
+      setInstallHelp('No Safari, toque em Compartilhar e escolha “Adicionar à Tela de Início”.')
+    } else if (isMac && /Safari/.test(userAgent) && !/Chrome|Chromium|Edg/.test(userAgent)) {
+      setInstallHelp('No Safari para macOS, abra o menu Arquivo e escolha “Adicionar ao Dock”.')
+    } else {
+      setInstallHelp('No Chrome ou Edge, abra o menu do navegador e escolha “Instalar Grimório dos Mundos”. No Windows e macOS, o app abre em uma janela própria.')
     }
   }
 
@@ -620,6 +662,31 @@ function App() {
               <button type="submit" disabled={authBusy}>Receber token de acesso</button>
             </form>
             <small>O cadastro e o login usam validação por token enviado ao e-mail, sem documentos pessoais.</small>
+          </div>
+        </div>
+      )}
+
+      <footer className="app-footer">
+        <div>
+          <span className="brand-mark footer-mark">G</span>
+          <div>
+            <strong>Leve o Grimório com você</strong>
+            <p>Instale no Android, iOS, Windows ou macOS pelo navegador e use em uma janela própria.</p>
+          </div>
+        </div>
+        <button type="button" onClick={installApp}>Instalar aplicativo</button>
+        <small>Aplicativo web instalável. APK/IPA assinados ainda não estão disponíveis.</small>
+      </footer>
+
+      {installHelp && (
+        <div className="auth-modal" role="dialog" aria-modal="true" aria-label="Como instalar o app">
+          <div className="auth-card install-card">
+            <button className="auth-close" onClick={() => setInstallHelp('')} aria-label="Fechar">×</button>
+            <span className="brand-mark">G</span>
+            <p className="eyebrow">INSTALAÇÃO</p>
+            <h2>Adicione à tela inicial</h2>
+            <p>{installHelp}</p>
+            <button className="google-button" onClick={() => setInstallHelp('')}>Entendi</button>
           </div>
         </div>
       )}

@@ -1,0 +1,19 @@
+{
+  "name": "Grimório dos Mundos",
+  "short_name": "Grimório",
+  "description": "Histórias autorais em quadrinhos, mangás e fantasia.",
+  "lang": "pt-BR",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#11100f",
+  "theme_color": "#11100f",
+  "icons": [
+    {
+      "src": "./app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

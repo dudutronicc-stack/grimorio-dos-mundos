@@ -1,6 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { firebaseAuth, googleProvider } from './firebase'
+import { firebaseAuth, firestoreDb, googleProvider } from './firebase'
 import { onAuthStateChanged, signInWithPopup, signOut, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth'
+import {
+  createSuggestion,
+  fetchCharacters,
+  fetchDrafts,
+  fetchStories,
+  fetchSuggestions,
+  fetchUserRole,
+  fetchVolumePages,
+  persistCharacter,
+  persistDraft,
+  persistReaction,
+  persistStory,
+  persistVolume,
+  removeDraft,
+} from './firestoreData'
 import './App.css'
 
 const seedStories = [
@@ -28,9 +43,9 @@ function readData(key, fallback) {
 function App() {
   const [area, setArea] = useState('reader')
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
-  const [stories, setStories] = useState(() => readData('stories', seedStories))
-  const [drafts, setDrafts] = useState(() => readData('author-drafts', []))
-  const [characters, setCharacters] = useState(() => readData('characters', [
+  const [stories, setStories] = useState(() => firestoreDb ? [] : readData('stories', seedStories))
+  const [drafts, setDrafts] = useState(() => firestoreDb ? [] : readData('author-drafts', []))
+  const [characters, setCharacters] = useState(() => firestoreDb ? [] : readData('characters', [
     { id: 1, name: 'Henry', role: 'Protagonista', note: 'Cabelos escuros bagunçados, expressão cansada.' },
     { id: 2, name: 'Jacx', role: 'Co-protagonista', note: 'Cachos escuros, vestido cinza simples.' },
   ]))
@@ -39,6 +54,7 @@ function App() {
   const [authModal, setAuthModal] = useState(false)
   const [authEmail, setAuthEmail] = useState('')
   const [authUser, setAuthUser] = useState(null)
+  const [accountRole, setAccountRole] = useState('reader')
   const [authBusy, setAuthBusy] = useState(false)
   const [viewMode, setViewMode] = useState('site')
   const [selectedVolume, setSelectedVolume] = useState(null)
@@ -52,6 +68,8 @@ function App() {
   const [writingText, setWritingText] = useState('')
   const [selectedPage, setSelectedPage] = useState(0)
   const [notice, setNotice] = useState('')
+  const ownerUnlocked = authUser?.email === 'dudutronicc@gmail.com' || accountRole === 'creator'
+  const readerPageCount = selectedVolume?.pages?.length || selectedVolume?.chapters || 1
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -59,23 +77,23 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    localStorage.setItem('stories', JSON.stringify(stories))
+    if (!firestoreDb) localStorage.setItem('stories', JSON.stringify(stories))
   }, [stories])
 
   useEffect(() => {
-    localStorage.setItem('author-drafts', JSON.stringify(drafts))
+    if (!firestoreDb) localStorage.setItem('author-drafts', JSON.stringify(drafts))
   }, [drafts])
 
   useEffect(() => {
-    localStorage.setItem('characters', JSON.stringify(characters))
+    if (!firestoreDb) localStorage.setItem('characters', JSON.stringify(characters))
   }, [characters])
 
   useEffect(() => {
-    localStorage.setItem('suggestions', JSON.stringify(suggestions))
+    if (!firestoreDb) localStorage.setItem('suggestions', JSON.stringify(suggestions))
   }, [suggestions])
 
   useEffect(() => {
-    localStorage.setItem('reactions', JSON.stringify(reactions))
+    if (!firestoreDb) localStorage.setItem('reactions', JSON.stringify(reactions))
   }, [reactions])
 
   useEffect(() => {
@@ -106,6 +124,54 @@ function App() {
   }, [])
 
   useEffect(() => {
+    if (!firestoreDb || !authUser) {
+      setAccountRole('reader')
+      return
+    }
+    let active = true
+    fetchUserRole(authUser.uid)
+      .then((role) => {
+        if (active) setAccountRole(role)
+      })
+      .catch(() => {
+        if (active) setNotice('Não foi possível verificar o perfil da conta.')
+      })
+    return () => { active = false }
+  }, [authUser])
+
+  useEffect(() => {
+    if (!firestoreDb) return
+    let active = true
+    const isCreator = ownerUnlocked
+    fetchStories(isCreator, authUser?.uid)
+      .then((items) => {
+        if (!active) return
+        setStories(items)
+        setReactions(Object.fromEntries(items.flatMap((story) => story.volumes
+          .filter((volume) => volume.userReaction)
+          .map((volume) => [volume.id, volume.userReaction]))))
+      })
+      .catch(() => {
+        if (active) setNotice('Não foi possível carregar as histórias do Firestore. Verifique a configuração e as regras.')
+      })
+
+    if (isCreator) {
+      Promise.all([fetchDrafts(authUser.uid), fetchSuggestions(), fetchCharacters()])
+        .then(([savedDrafts, savedSuggestions, savedCharacters]) => {
+          if (!active) return
+          setDrafts(savedDrafts)
+          setSuggestions(savedSuggestions)
+          setCharacters(savedCharacters)
+        })
+        .catch(() => {
+          if (active) setNotice('Não foi possível carregar os dados privados do estúdio.')
+        })
+    }
+
+    return () => { active = false }
+  }, [authUser, ownerUnlocked])
+
+  useEffect(() => {
     if (!firebaseAuth || !isSignInWithEmailLink(firebaseAuth, window.location.href)) return
     const email = window.localStorage.getItem('emailForSignIn')
     if (!email) {
@@ -130,15 +196,13 @@ function App() {
     return { visits, likes, dislikes, downloads, suggestions: suggestions.length }
   }, [reactions, stories, suggestions])
 
-  const ownerUnlocked = authUser?.email === 'dudutronicc@gmail.com'
-  const readerPageCount = selectedVolume?.pages?.length || selectedVolume?.chapters || 1
-
-  function addStory(event) {
+  async function addStory(event) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
+    const form = event.currentTarget
+    const data = new FormData(form)
     const cover = data.get('cover')?.trim()
     const story = {
-      id: Date.now(),
+      id: String(Date.now()),
       title: data.get('title'),
       kind: data.get('kind'),
       status: data.get('status'),
@@ -146,98 +210,144 @@ function App() {
       cover,
       volumes: [],
     }
-
-    function saveDraft(event) {
-      event.preventDefault()
-      const title = writingTitle.trim()
-      const text = writingText.trim()
-      if (!title || !text) {
-        setNotice('Preencha o título e o texto para salvar o rascunho.')
+    if (firestoreDb) {
+      try {
+        await persistStory(story)
+      } catch {
+        setNotice('A história não foi salva no Firestore. Verifique sua conta e as regras de acesso.')
         return
       }
+    }
+    setStories((items) => [story, ...items])
+    form.reset()
+    setNotice('História criada.')
+  }
 
-      const draft = {
-        id: draftId || Date.now(),
-        storyId: writingStoryId,
-        title,
-        text,
-        updatedAt: new Date().toISOString(),
-      }
-      setDrafts((items) => [draft, ...items.filter((item) => item.id !== draft.id)])
-      setDraftId(draft.id)
-      setNotice('Rascunho salvo. Você pode voltar a ele depois neste navegador.')
+  async function saveDraft(event) {
+    event.preventDefault()
+    const title = writingTitle.trim()
+    const text = writingText.trim()
+    if (!title || !text) {
+      setNotice('Preencha o título e o texto para salvar o rascunho.')
+      return
     }
 
-    function resumeDraft(draft) {
-      setDraftId(draft.id)
-      setWritingStoryId(draft.storyId || '')
-      setWritingTitle(draft.title)
-      setWritingText(draft.text)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      setNotice(`Rascunho "${draft.title}" aberto para continuar.`)
+    const draft = {
+      id: draftId || Date.now(),
+      storyId: writingStoryId,
+      title,
+      text,
+      updatedAt: new Date().toISOString(),
+    }
+    if (firestoreDb) {
+      if (!firebaseAuth?.currentUser) {
+        setNotice('Entre na conta de criador antes de salvar um rascunho na nuvem.')
+        return
+      }
+      try {
+        await persistDraft(firebaseAuth.currentUser.uid, draft)
+      } catch {
+        setNotice('Não foi possível salvar o rascunho no Firestore.')
+        return
+      }
+    }
+    setDrafts((items) => [draft, ...items.filter((item) => item.id !== draft.id)])
+    setDraftId(draft.id)
+    setNotice(firestoreDb ? 'Rascunho salvo na nuvem.' : 'Rascunho salvo neste navegador.')
+  }
+
+  function resumeDraft(draft) {
+    setDraftId(draft.id)
+    setWritingStoryId(draft.storyId || '')
+    setWritingTitle(draft.title)
+    setWritingText(draft.text)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    setNotice(`Rascunho "${draft.title}" aberto para continuar.`)
+  }
+
+  async function publishWriting(event) {
+    event.preventDefault()
+    const title = writingTitle.trim()
+    const text = writingText.trim()
+    if (!title || !text) {
+      setNotice('Adicione um título e escreva o conteúdo antes de publicar.')
+      return
+    }
+    const story = stories.find((item) => String(item.id) === String(writingStoryId))
+    if (!story) {
+      setNotice('Selecione uma história para publicar este volume.')
+      return
     }
 
-    function publishWriting(event) {
-      event.preventDefault()
-      const title = writingTitle.trim()
-      const text = writingText.trim()
-      if (!title || !text) {
-        setNotice('Adicione um título e escreva o conteúdo antes de publicar.')
+    const pages = text.split(/\n\s*\n/).map((page) => page.trim()).filter(Boolean)
+    const volumeNumber = Math.max(0, ...story.volumes.map((volume) => Number(volume.number) || 0)) + 1
+    const volume = {
+      id: String(Date.now()),
+      number: volumeNumber,
+      title,
+      chapters: 1,
+      pages: pages.length ? pages : [text],
+      downloads: 0,
+      likes: 0,
+      dislikes: 0,
+      publishedAt: new Date().toISOString(),
+    }
+    if (firestoreDb) {
+      try {
+        await persistVolume(story.id, volume)
+        if (draftId && firebaseAuth?.currentUser) {
+          await removeDraft(firebaseAuth.currentUser.uid, draftId)
+        }
+      } catch {
+        setNotice('O volume não foi publicado no Firestore. Confira conexão e regras.')
         return
       }
-      const story = stories.find((item) => String(item.id) === String(writingStoryId))
-      if (!story) {
-        setNotice('Selecione uma história para publicar este volume.')
-        return
-      }
+    }
+    setStories((items) => items.map((item) => (
+      item.id === story.id ? { ...item, volumes: [...item.volumes, volume] } : item
+    )))
+    setDrafts((items) => items.filter((item) => item.id !== draftId))
+    setDraftId(null)
+    setWritingTitle('')
+    setWritingText('')
+    setWritingStoryId('')
+    setNotice(`Volume ${volumeNumber} publicado em "${story.title}".`)
+  }
 
-      const pages = text.split(/\n\s*\n/).map((page) => page.trim()).filter(Boolean)
-      const volumeNumber = Math.max(0, ...story.volumes.map((volume) => Number(volume.number) || 0)) + 1
-      const volume = {
-        id: Date.now(),
-        number: volumeNumber,
-        title,
-        chapters: 1,
-        pages: pages.length ? pages : [text],
-        downloads: 0,
-        likes: 0,
-        dislikes: 0,
-        publishedAt: new Date().toISOString(),
+  async function deleteDraft(id) {
+    if (firestoreDb && firebaseAuth?.currentUser) {
+      try {
+        await removeDraft(firebaseAuth.currentUser.uid, id)
+      } catch {
+        setNotice('Não foi possível excluir o rascunho salvo na nuvem.')
+        return
       }
-      setStories((items) => items.map((item) => (
-        item.id === story.id ? { ...item, volumes: [...item.volumes, volume] } : item
-      )))
-      setDrafts((items) => items.filter((item) => item.id !== draftId))
+    }
+    setDrafts((items) => items.filter((item) => item.id !== id))
+    if (draftId === id) {
       setDraftId(null)
       setWritingTitle('')
       setWritingText('')
       setWritingStoryId('')
-      setNotice(`Volume ${volumeNumber} publicado em "${story.title}".`)
     }
-
-    function deleteDraft(id) {
-      setDrafts((items) => items.filter((item) => item.id !== id))
-      if (draftId === id) {
-        setDraftId(null)
-        setWritingTitle('')
-        setWritingText('')
-        setWritingStoryId('')
-      }
-      setNotice('Rascunho excluído.')
-    }
-    setStories((items) => [story, ...items])
-    event.currentTarget.reset()
-    setNotice('História criada.')
+    setNotice('Rascunho excluído.')
   }
 
-  function addCharacterSafe(event) {
+  async function addCharacterSafe(event) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    setCharacters((items) => [
-      ...items,
-      { id: Date.now(), name: data.get('name'), role: data.get('role'), note: data.get('note') },
-    ])
-    event.currentTarget.reset()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const character = { id: String(Date.now()), name: data.get('name'), role: data.get('role'), note: data.get('note') }
+    if (firestoreDb) {
+      try {
+        await persistCharacter(character)
+      } catch {
+        setNotice('Não foi possível salvar o personagem no Firestore.')
+        return
+      }
+    }
+    setCharacters((items) => [...items, character])
+    form.reset()
   }
 
   function generatePages(event) {
@@ -268,28 +378,65 @@ function App() {
     return value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
   }
 
-  function reactTo(volumeId, reaction) {
-    setReactions((items) => ({ ...items, [volumeId]: items[volumeId] === reaction ? null : reaction }))
+  async function reactTo(storyId, volumeId, reaction) {
+    if (firestoreDb && !firebaseAuth?.currentUser) {
+      setAuthModal(true)
+      setNotice('Entre para avaliar este volume.')
+      return
+    }
+    const nextReaction = reactions[volumeId] === reaction ? null : reaction
+    if (firestoreDb && firebaseAuth?.currentUser) {
+      try {
+        await persistReaction(storyId, volumeId, firebaseAuth.currentUser.uid, nextReaction)
+      } catch {
+        setNotice('Não foi possível salvar sua avaliação.')
+        return
+      }
+    }
+    setReactions((items) => ({ ...items, [volumeId]: nextReaction }))
   }
 
-  function openVolume(volume) {
+  async function openVolume(storyId, volume) {
     if (!authUser && volume.number > 1) {
       setAuthModal(true)
       setNotice('Entre para ler os volumes seguintes.')
       return
     }
     setSelectedPage(0)
-    setSelectedVolume(volume)
+    if (!firestoreDb) {
+      setSelectedVolume(volume)
+      return
+    }
+    try {
+      const pages = await fetchVolumePages(storyId, volume.id, Boolean(authUser))
+      setSelectedVolume({ ...volume, pages })
+    } catch {
+      setNotice('Não foi possível abrir as páginas deste volume no Firestore.')
+    }
   }
 
-  function addSuggestion(event) {
+  async function addSuggestion(event) {
     event.preventDefault()
-    const data = new FormData(event.currentTarget)
-    setSuggestions((items) => [
-      { id: Date.now(), name: data.get('name') || 'Leitor', message: data.get('message') },
-      ...items,
-    ])
-    event.currentTarget.reset()
+    const form = event.currentTarget
+    const data = new FormData(form)
+    const name = data.get('name') || authUser?.displayName || 'Leitor'
+    const message = data.get('message')
+    if (firestoreDb && !firebaseAuth?.currentUser) {
+      setAuthModal(true)
+      setNotice('Entre para enviar uma sugestão.')
+      return
+    }
+    let id = String(Date.now())
+    if (firestoreDb && firebaseAuth?.currentUser) {
+      try {
+        id = await createSuggestion(firebaseAuth.currentUser.uid, name, message)
+      } catch {
+        setNotice('Não foi possível enviar a sugestão.')
+        return
+      }
+    }
+    setSuggestions((items) => [{ id, name, message }, ...items])
+    form.reset()
     setNotice('Sugestão enviada.')
   }
 
@@ -435,8 +582,8 @@ function App() {
                     className="cover"
                     role="button"
                     tabIndex={0}
-                    onClick={() => story.volumes[0] && openVolume(story.volumes[0])}
-                    onKeyDown={(event) => event.key === 'Enter' && story.volumes[0] && openVolume(story.volumes[0])}
+                    onClick={() => story.volumes[0] && openVolume(story.id, story.volumes[0])}
+                    onKeyDown={(event) => event.key === 'Enter' && story.volumes[0] && openVolume(story.id, story.volumes[0])}
                     style={story.cover ? { backgroundImage: `linear-gradient(145deg, transparent, #09070d), url(${story.cover})` } : undefined}
                   >
                     <span>{story.kind}</span>
@@ -454,9 +601,9 @@ function App() {
                             <small>{volume.chapters} capítulos</small>
                           </div>
                           <div className="actions">
-                            <button onClick={() => openVolume(volume)}>Ler</button>
-                            <button className={reactions[volume.id] === 'like' ? 'selected' : ''} onClick={() => reactTo(volume.id, 'like')}>▲ {volume.likes}</button>
-                            <button className={reactions[volume.id] === 'dislike' ? 'selected' : ''} onClick={() => reactTo(volume.id, 'dislike')}>▼ {volume.dislikes}</button>
+                            <button onClick={() => openVolume(story.id, volume)}>Ler</button>
+                            <button className={reactions[volume.id] === 'like' ? 'selected' : ''} onClick={() => reactTo(story.id, volume.id, 'like')}>▲ {volume.likes}</button>
+                            <button className={reactions[volume.id] === 'dislike' ? 'selected' : ''} onClick={() => reactTo(story.id, volume.id, 'dislike')}>▼ {volume.dislikes}</button>
                             <button onClick={() => downloadVolume(volume)}>⇩ Download</button>
                           </div>
                         </div>

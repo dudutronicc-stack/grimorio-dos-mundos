@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owner() {
+      return signedIn()
+        && request.auth.token.email == 'dudutronicc@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function creator() {
+      return owner()
+        || (signedIn()
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'creator');
+    }
+
+    match /stories/{storyId} {
+      allow read: if creator() || resource.data.status == 'published';
+      allow create, update, delete: if creator();
+
+      match /volumes/{volumeId} {
+        allow read: if creator() || resource.data.status == 'published';
+        allow create, update, delete: if creator();
+
+        match /pages/{pageId} {
+          function parentVolume() {
+            return get(/databases/$(database)/documents/stories/$(storyId)/volumes/$(volumeId)).data;
+          }
+
+          allow read: if creator()
+            || (parentVolume().status == 'published'
+              && signedIn())
+            || (parentVolume().status == 'published'
+              && parentVolume().number == 1
+              && resource.data.pageNumber <= 4);
+          allow create, update, delete: if creator();
+        }
+
+        match /reactions/{userId} {
+          allow read: if creator() || (signedIn() && request.auth.uid == userId);
+          allow create, update: if signedIn()
+            && request.auth.uid == userId
+            && request.resource.data.keys().hasOnly(['uid', 'reaction', 'updatedAt'])
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.reaction in ['like', 'dislike'];
+          allow delete: if signedIn() && request.auth.uid == userId;
+        }
+      }
+
+      match /characters/{characterId} {
+        allow read: if creator() || get(/databases/$(database)/documents/stories/$(storyId)).data.status == 'published';
+        allow create, update, delete: if creator();
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if creator() || (signedIn() && request.auth.uid == userId);
+      allow create: if signedIn()
+        && request.auth.uid == userId
+        && request.resource.data.role == 'reader'
+        && request.resource.data.keys().hasOnly(['role', 'displayName', 'email', 'createdAt']);
+      allow update: if owner()
+        || (signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']));
+      allow delete: if owner();
+
+      match /drafts/{draftId} {
+        allow read, write: if creator() && request.auth.uid == userId;
+      }
+    }
+
+    match /suggestions/{suggestionId} {
+      allow read: if creator();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.message is string
+        && request.resource.data.message.size() > 0
+        && request.resource.data.message.size() <= 2000
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'message', 'createdAt']);
+      allow update, delete: if creator();
+    }
+
+    match /characters/{characterId} {
+      allow read, write: if creator();
+    }
+  }
+}

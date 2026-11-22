@@ -1,5 +1,6 @@
 import { initializeApp } from 'firebase/app'
-import { getAuth, GoogleAuthProvider } from 'firebase/auth'
+import { connectAuthEmulator, getAuth, GoogleAuthProvider } from 'firebase/auth'
+import { connectFirestoreEmulator, getFirestore } from 'firebase/firestore'
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -14,3 +15,9 @@ export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean)
 const app = firebaseConfigured ? initializeApp(firebaseConfig) : null
 export const firebaseAuth = app ? getAuth(app) : null
 export const googleProvider = firebaseConfigured ? new GoogleAuthProvider() : null
+export const firestoreDb = app ? getFirestore(app) : null
+
+if (import.meta.env.VITE_USE_FIREBASE_EMULATORS === 'true' && firebaseAuth && firestoreDb) {
+  connectAuthEmulator(firebaseAuth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  connectFirestoreEmulator(firestoreDb, '127.0.0.1', 8080)
+}

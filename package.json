@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "firebase:emulators": "npx firebase-tools@15.37.0 emulators:start --only auth,firestore --project demo-grimorio-mundos --import=.firebase-data --export-on-exit=.firebase-data",
+    "firebase:deploy-rules": "npx firebase-tools@15.37.0 deploy --only firestore:rules --project grimorio-dos-mundos-dh"
   },
   "dependencies": {
     "firebase": "^13.4.0",

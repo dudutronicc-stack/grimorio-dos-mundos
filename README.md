@@ -1,16 +1,25 @@
-# React + Vite
+# Grimório dos Mundos
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Aplicação web para publicar histórias autorais em quadrinhos, mangás e fantasia.
 
-Currently, two official plugins are available:
+## Recursos
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Biblioteca pública de histórias e volumes
+- Área local do criador
+- Cadastro de histórias e personagens
+- Gerador de roteiro de dez páginas
+- Sugestões dos leitores
+- Likes e dislikes
+- Downloads com identificação de Eduardo Henrique
+- Tema claro e escuro
 
-## React Compiler
+## Executar localmente
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```powershell
+npm install
+npm run dev
+```
 
-## Expanding the Oxlint configuration
+## Publicação no GitHub Pages
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+O workflow em `.github/workflows/deploy.yml` publica automaticamente o conteúdo da pasta `dist` após cada push na branch `master`.

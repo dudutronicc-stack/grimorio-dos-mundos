@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { firebaseAuth, firebaseConfigured, googleProvider } from './firebase'
+import { onAuthStateChanged, signInWithPopup, signOut, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth'
 import './App.css'
 
 const seedStories = [
@@ -33,8 +35,14 @@ function App() {
   ]))
   const [suggestions, setSuggestions] = useState(() => readData('suggestions', []))
   const [reactions, setReactions] = useState(() => readData('reactions', {}))
-  const [ownerUnlocked, setOwnerUnlocked] = useState(false)
-  const [pin, setPin] = useState('')
+  const [authModal, setAuthModal] = useState(false)
+  const [authEmail, setAuthEmail] = useState('')
+  const [authUser, setAuthUser] = useState(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [viewMode, setViewMode] = useState('site')
+  const [selectedVolume, setSelectedVolume] = useState(null)
+  const [studioText, setStudioText] = useState('')
+  const [comicPrompt, setComicPrompt] = useState('')
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
@@ -63,6 +71,29 @@ function App() {
     localStorage.setItem('visits', String(visits))
   }, [])
 
+  useEffect(() => {
+    if (!firebaseAuth) return
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => setAuthUser(user))
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    if (!firebaseAuth || !isSignInWithEmailLink(firebaseAuth, window.location.href)) return
+    const email = window.localStorage.getItem('emailForSignIn')
+    if (!email) {
+      setAuthEmail('')
+      setAuthModal(true)
+      return
+    }
+    signInWithEmailLink(firebaseAuth, email, window.location.href)
+      .then(() => {
+        window.localStorage.removeItem('emailForSignIn')
+        window.history.replaceState({}, document.title, window.location.pathname)
+        setNotice('Login confirmado.')
+      })
+      .catch(() => setNotice('O link de login expirou ou não é válido.'))
+  }, [])
+
   const metrics = useMemo(() => {
     const visits = Number(localStorage.getItem('visits') || 0)
     const likes = Object.values(reactions).filter((item) => item === 'like').length
@@ -70,6 +101,8 @@ function App() {
     const downloads = stories.reduce((total, story) => total + story.volumes.reduce((sum, volume) => sum + volume.downloads, 0), 0)
     return { visits, likes, dislikes, downloads, suggestions: suggestions.length }
   }, [reactions, stories, suggestions])
+
+  const ownerUnlocked = authUser?.email === 'dudutronicc@gmail.com'
 
   function addStory(event) {
     event.preventDefault()
@@ -161,13 +194,59 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
-  function unlockOwner(event) {
-    event.preventDefault()
-    if (pin === '1234') {
-      setOwnerUnlocked(true)
-      setNotice('Área do criador desbloqueada.')
+  function openAuth() {
+    setAuthModal(true)
+  }
+
+  function openOwner() {
+    if (!firebaseAuth) {
+      setAuthModal(true)
+      setNotice('A autenticação real ainda precisa da configuração pública do Firebase.')
+      return
+    }
+    if (ownerUnlocked) {
+      setArea('owner')
     } else {
-      setNotice('Código incorreto.')
+      setAuthModal(true)
+    }
+  }
+
+  async function signInWithGoogle() {
+    if (!firebaseAuth || !googleProvider) {
+      setNotice('Configure o Firebase antes de usar o login Google.')
+      return
+    }
+    setAuthBusy(true)
+    try {
+      await signInWithPopup(firebaseAuth, googleProvider)
+      setAuthModal(false)
+      setNotice('Login realizado.')
+    } catch {
+      setNotice('Não foi possível concluir o login Google.')
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function sendEmailLink(event) {
+    event.preventDefault()
+    if (!firebaseAuth || !authEmail) {
+      setNotice('Informe um e-mail válido.')
+      return
+    }
+    setAuthBusy(true)
+    try {
+      await sendSignInLinkToEmail(firebaseAuth, authEmail, {
+        url: window.location.href,
+        handleCodeInApp: true,
+      })
+      window.localStorage.setItem('emailForSignIn', authEmail)
+      setNotice('Token enviado por e-mail.')
+      setAuthModal(false)
+    } catch {
+      setNotice('Não foi possível enviar o token por e-mail.')
+    } finally {
+      setAuthBusy(false)
     }
   }
 
@@ -183,11 +262,18 @@ function App() {
         </button>
         <nav aria-label="Navegação principal">
           <button className={area === 'reader' ? 'active' : ''} onClick={() => setArea('reader')}>Biblioteca</button>
-          <button className={area === 'owner' ? 'active' : ''} onClick={() => setArea('owner')}>Área do criador</button>
+          {ownerUnlocked && <button className={area === 'owner' ? 'active' : ''} onClick={() => setArea('owner')}>Estúdio do autor</button>}
         </nav>
-        <button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} type="button" aria-label="Alternar tema">
-          {theme === 'dark' ? '☀' : '☾'}
-        </button>
+        <div className="top-actions">
+          <button className="theme-button" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} type="button" aria-label="Alternar tema">
+            {theme === 'dark' ? '☀' : '☾'}
+          </button>
+          {authUser ? (
+            <button className="login-button" onClick={() => firebaseAuth && signOut(firebaseAuth)}>Sair</button>
+          ) : (
+            <button className="login-button" onClick={openAuth}>Entrar</button>
+          )}
+        </div>
       </header>
 
       {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Fechar">×</button></div>}
@@ -203,12 +289,22 @@ function App() {
           <section>
             <div className="section-heading">
               <div><p className="eyebrow">COLEÇÃO</p><h2>Histórias disponíveis</h2></div>
-              <span>{stories.length} títulos</span>
+              <div className="view-switch" aria-label="Modo de visualização">
+                <button className={viewMode === 'site' ? 'active' : ''} onClick={() => setViewMode('site')}>Site</button>
+                <button className={viewMode === 'feed' ? 'active' : ''} onClick={() => setViewMode('feed')}>Feed</button>
+              </div>
             </div>
-            <div className="story-grid">
+            <div className={viewMode === 'feed' ? 'feed-grid' : 'story-grid'}>
               {stories.map((story) => (
                 <article className="story-card" key={story.id}>
-                  <div className="cover" style={story.cover ? { backgroundImage: `linear-gradient(145deg, transparent, #09070d), url(${story.cover})` } : undefined}>
+                  <div
+                    className="cover"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => story.volumes[0] && setSelectedVolume(story.volumes[0])}
+                    onKeyDown={(event) => event.key === 'Enter' && story.volumes[0] && setSelectedVolume(story.volumes[0])}
+                    style={story.cover ? { backgroundImage: `linear-gradient(145deg, transparent, #09070d), url(${story.cover})` } : undefined}
+                  >
                     <span>{story.kind}</span>
                     <strong>{story.title}</strong>
                   </div>
@@ -253,24 +349,12 @@ function App() {
         </main>
       ) : (
         <main className="owner-layout">
-          {!ownerUnlocked ? (
-            <section className="unlock-card">
-              <span className="brand-mark">G</span>
-              <p className="eyebrow">ACESSO RESTRITO</p>
-              <h1>Área do criador</h1>
-              <p>Digite o código local de demonstração.</p>
-              <form onSubmit={unlockOwner}>
-                <input type="password" inputMode="numeric" value={pin} onChange={(event) => setPin(event.target.value)} placeholder="Código" />
-                <button type="submit">Entrar</button>
-              </form>
-              <small>Versão pública de demonstração. Para proteção real, é necessário autenticação de servidor.</small>
-            </section>
-          ) : (
-            <div className="dashboard">
+          {ownerUnlocked ? (
+            <div className="dashboard studio">
               <aside>
-                <p className="eyebrow">PAINEL</p>
+                <p className="eyebrow">ESTÚDIO</p>
                 <h2>Eduardo Henrique</h2>
-                <button onClick={() => setOwnerUnlocked(false)}>Sair</button>
+                <button onClick={() => firebaseAuth && signOut(firebaseAuth)}>Sair</button>
               </aside>
               <div className="dashboard-content">
                 <div className="metric-grid">
@@ -281,7 +365,7 @@ function App() {
                 </div>
 
                 <section className="panel-section">
-                  <h2>Nova história</h2>
+                  <h2>Criar uma história</h2>
                   <form className="grid-form" onSubmit={addStory}>
                     <input name="title" placeholder="Título" required />
                     <input name="kind" placeholder="Gênero" required />
@@ -290,6 +374,24 @@ function App() {
                     <textarea name="synopsis" placeholder="Sinopse" required />
                     <button type="submit">Publicar história</button>
                   </form>
+                </section>
+
+                <section className="panel-section studio-ai">
+                  <div>
+                    <p className="eyebrow">ASSISTENTE DE TEXTO</p>
+                    <h2>Organize o roteiro</h2>
+                  </div>
+                  <textarea value={studioText} onChange={(event) => setStudioText(event.target.value)} placeholder="Cole o texto da cena, a sinopse ou a descrição dos personagens..." />
+                  <button type="button" onClick={() => setNotice('Assistente de texto preparado para integração com IA.')}>Organizar narrativa</button>
+                </section>
+
+                <section className="panel-section studio-ai">
+                  <div>
+                    <p className="eyebrow">AGENTE DE QUADRINHOS</p>
+                    <h2>Transformar em mangá</h2>
+                  </div>
+                  <textarea value={comicPrompt} onChange={(event) => setComicPrompt(event.target.value)} placeholder="Descreva a composição, enquadramentos, emoção e consistência visual..." />
+                  <button type="button" onClick={() => setNotice('Agente visual preparado para gerar o roteiro de páginas.')}>Gerar plano de páginas</button>
                 </section>
 
                 <section className="panel-section">
@@ -320,8 +422,57 @@ function App() {
                 </section>
               </div>
             </div>
+          ) : (
+            <section className="unlock-card">
+              <span className="brand-mark">G</span>
+              <p className="eyebrow">ACESSO DE AUTOR</p>
+              <h1>Estúdio do autor</h1>
+              <p>Esta área é reservada ao criador autorizado.</p>
+              <button type="button" onClick={openAuth}>Entrar com minha conta</button>
+            </section>
           )}
         </main>
+      )}
+
+      {selectedVolume && (
+        <div className="reader-modal" role="dialog" aria-modal="true" aria-label={`Leitor de ${selectedVolume.title}`}>
+          <button className="reader-close" onClick={() => setSelectedVolume(null)} aria-label="Fechar leitor">×</button>
+          <div className="book">
+            <div className="book-page left-page">
+              <span>Volume {selectedVolume.number}</span>
+              <h2>{selectedVolume.title}</h2>
+              <p>{authUser ? 'Modo completo disponível para leitores cadastrados.' : 'Prévia gratuita: primeiro volume e primeiras quatro páginas.'}</p>
+            </div>
+            <div className="book-page right-page">
+              <div className="comic-preview">PÁGINA 1</div>
+              {!authUser && (
+                <div className="login-gate">
+                  <strong>Continue a leitura</strong>
+                  <p>Faça login para desbloquear todas as páginas, volumes e downloads.</p>
+                  <button onClick={openAuth}>Entrar ou cadastrar</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {authModal && (
+        <div className="auth-modal" role="dialog" aria-modal="true" aria-label="Entrar na conta">
+          <div className="auth-card">
+            <button className="auth-close" onClick={() => setAuthModal(false)} aria-label="Fechar">×</button>
+            <span className="brand-mark">G</span>
+            <p className="eyebrow">GRIMÓRIO DOS MUNDOS</p>
+            <h2>Entre ou crie sua conta</h2>
+            <button className="google-button" onClick={signInWithGoogle} disabled={authBusy}>Continuar com Google</button>
+            <div className="divider"><span>ou use seu e-mail</span></div>
+            <form onSubmit={sendEmailLink}>
+              <input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Seu e-mail" required />
+              <button type="submit" disabled={authBusy}>Receber token de acesso</button>
+            </form>
+            <small>O cadastro e o login usam validação por token enviado ao e-mail, sem documentos pessoais.</small>
+          </div>
+        </div>
       )}
     </div>
   )

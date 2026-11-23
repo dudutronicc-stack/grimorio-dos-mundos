@@ -19,29 +19,93 @@ service cloud.firestore {
     }
 
     match /stories/{storyId} {
-      allow read: if creator() || resource.data.status == 'published';
+      allow read: if creator()
+        || (resource.data.status == 'published'
+          && (signedIn() || resource.data.guestPreview == true));
       allow create, update, delete: if creator();
 
       match /volumes/{volumeId} {
-        allow read: if creator() || resource.data.status == 'published';
+        function parentStory() {
+          return get(/databases/$(database)/documents/stories/$(storyId)).data;
+        }
+
+        allow read: if creator()
+          || (resource.data.status == 'published'
+            && parentStory().status == 'published'
+            && (signedIn() || parentStory().guestPreview == true));
         allow create, update, delete: if creator();
 
         match /pages/{pageId} {
+          function parentStory() {
+            return get(/databases/$(database)/documents/stories/$(storyId)).data;
+          }
+
           function parentVolume() {
             return get(/databases/$(database)/documents/stories/$(storyId)/volumes/$(volumeId)).data;
           }
 
           allow read: if creator()
-            || (parentVolume().status == 'published'
-              && signedIn())
-            || (parentVolume().status == 'published'
+            || (signedIn()
+              && parentStory().status == 'published'
+              && parentVolume().status == 'published')
+            || (parentStory().status == 'published'
+              && parentStory().guestPreview == true
+              && parentVolume().status == 'published'
               && parentVolume().number == 1
-              && resource.data.pageNumber <= 4);
+              && resource.data.pageNumber <= 5);
           allow create, update, delete: if creator();
         }
 
+        match /chapters/{chapterId} {
+          function parentStory() {
+            return get(/databases/$(database)/documents/stories/$(storyId)).data;
+          }
+
+          function parentVolume() {
+            return get(/databases/$(database)/documents/stories/$(storyId)/volumes/$(volumeId)).data;
+          }
+
+          allow read: if creator()
+            || (parentStory().status == 'published'
+              && parentVolume().status == 'published'
+              && resource.data.status == 'published'
+              && (signedIn() || parentStory().guestPreview == true));
+          allow create, update, delete: if creator();
+
+          match /pages/{pageId} {
+            function parentStory() {
+              return get(/databases/$(database)/documents/stories/$(storyId)).data;
+            }
+
+            function parentVolume() {
+              return get(/databases/$(database)/documents/stories/$(storyId)/volumes/$(volumeId)).data;
+            }
+
+            function parentChapter() {
+              return get(/databases/$(database)/documents/stories/$(storyId)/volumes/$(volumeId)/chapters/$(chapterId)).data;
+            }
+
+            allow read: if creator()
+              || (signedIn()
+                && parentStory().status == 'published'
+                && parentVolume().status == 'published'
+                && parentChapter().status == 'published')
+              || (parentStory().status == 'published'
+                && parentStory().guestPreview == true
+                && parentVolume().status == 'published'
+                && parentChapter().status == 'published'
+                && parentVolume().number == 1
+                && parentChapter().number == 1
+                && resource.data.pageNumber <= 5);
+            allow create, update, delete: if creator();
+          }
+        }
+
         match /reactions/{userId} {
-          allow read: if creator() || (signedIn() && request.auth.uid == userId);
+          allow read: if creator()
+            || (signedIn()
+              && request.auth.uid == userId
+              && resource.data.uid == request.auth.uid);
           allow create, update: if signedIn()
             && request.auth.uid == userId
             && request.resource.data.keys().hasOnly(['uid', 'reaction', 'updatedAt'])
@@ -52,7 +116,13 @@ service cloud.firestore {
       }
 
       match /characters/{characterId} {
-        allow read: if creator() || get(/databases/$(database)/documents/stories/$(storyId)).data.status == 'published';
+        function parentStory() {
+          return get(/databases/$(database)/documents/stories/$(storyId)).data;
+        }
+
+        allow read: if creator()
+          || (parentStory().status == 'published'
+            && (signedIn() || parentStory().guestPreview == true));
         allow create, update, delete: if creator();
       }
     }
@@ -66,11 +136,23 @@ service cloud.firestore {
       allow update: if owner()
         || (signedIn()
           && request.auth.uid == userId
-          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt']));
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'authorName', 'photoURL', 'updatedAt']));
       allow delete: if owner();
 
       match /drafts/{draftId} {
-        allow read, write: if creator() && request.auth.uid == userId;
+        allow read, write: if signedIn() && request.auth.uid == userId;
+      }
+
+      match /favorites/{favoriteId} {
+        allow read: if signedIn() && request.auth.uid == userId;
+        allow create, update: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.type in ['story', 'author']
+          && request.resource.data.targetId is string
+          && request.resource.data.targetName is string
+          && request.resource.data.targetName.size() <= 120
+          && request.resource.data.keys().hasOnly(['type', 'targetId', 'targetName', 'followedAt']);
+        allow delete: if signedIn() && request.auth.uid == userId;
       }
     }
 
@@ -78,13 +160,61 @@ service cloud.firestore {
       allow read: if creator();
       allow create: if signedIn()
         && request.resource.data.uid == request.auth.uid
+        && request.resource.data.storyId is string
+        && request.resource.data.volumeId is string
+        && request.resource.data.chapterId is string
         && request.resource.data.name is string
         && request.resource.data.name.size() <= 80
         && request.resource.data.message is string
         && request.resource.data.message.size() > 0
         && request.resource.data.message.size() <= 2000
-        && request.resource.data.keys().hasOnly(['uid', 'name', 'message', 'createdAt']);
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'message', 'storyId', 'volumeId', 'chapterId', 'createdAt'])
+        && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)).data.status == 'published'
+        && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/volumes/$(request.resource.data.volumeId)).data.status == 'published'
+        && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/volumes/$(request.resource.data.volumeId)).data.reviewEnabled == true;
       allow update, delete: if creator();
+    }
+
+    match /reviewRequests/{requestId} {
+      allow read: if creator()
+        || (signedIn()
+          && (resource.data.senderUid == request.auth.uid
+            || resource.data.recipientEmail == request.auth.token.email));
+      allow create: if signedIn()
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.senderEmail == request.auth.token.email
+        && request.resource.data.recipientEmail is string
+        && request.resource.data.recipientEmail.size() <= 254
+        && request.resource.data.recipientEmail.matches('^[^@ ]+@[^@ ]+$')
+        && request.resource.data.senderName is string
+        && request.resource.data.senderName.size() <= 80
+        && request.resource.data.storyTitle is string
+        && request.resource.data.storyTitle.size() <= 160
+        && request.resource.data.content is string
+        && request.resource.data.content.size() > 0
+        && request.resource.data.content.size() <= 200000
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly([
+          'senderUid', 'senderEmail', 'senderName', 'recipientEmail',
+          'storyId', 'volumeId', 'draftTitle', 'storyTitle', 'content',
+          'status', 'createdAt'
+        ]);
+      allow update: if signedIn()
+        && resource.data.recipientEmail == request.auth.token.email
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'reviewerUid', 'feedback', 'updatedAt'
+        ])
+        && (
+          (resource.data.status == 'pending'
+            && request.resource.data.status in ['accepted', 'declined']
+            && request.resource.data.reviewerUid == request.auth.uid)
+          || (resource.data.status == 'accepted'
+            && request.resource.data.status == 'completed'
+            && request.resource.data.reviewerUid == request.auth.uid
+            && request.resource.data.feedback is string
+            && request.resource.data.feedback.size() <= 5000)
+        );
+      allow delete: if creator();
     }
 
     match /characters/{characterId} {

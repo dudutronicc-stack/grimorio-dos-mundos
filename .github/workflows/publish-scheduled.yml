@@ -1,0 +1,44 @@
+name: Publish scheduled chapters
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-publication
+  cancel-in-progress: false
+
+jobs:
+  configuration-needed:
+    if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER == '' || vars.GCP_SERVICE_ACCOUNT == '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain required identity configuration
+        run: |
+          echo "Configure the GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_SERVICE_ACCOUNT repository variables to enable scheduled publications." >> "$GITHUB_STEP_SUMMARY"
+
+  publish-due-items:
+    if: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+      - run: npm run firestore:publish-scheduled
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
